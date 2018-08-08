@@ -60,7 +60,7 @@ def plot_sun_path():
     #plt.savefig('graph of sun position per month.png', dpi = 600)
     plt.show()
 
-@profile
+#@profile
 def hourAngle(obs,utc_offset,time):
     local_time = time
 
@@ -80,7 +80,7 @@ def hourAngle(obs,utc_offset,time):
 
     return hour_angle, st,solar_time # radians
 
-@profile
+#@profile
 def dayAngle(obs,utc_offset,time):
     local_time = time
     d_n = local_time.day_of_year
@@ -88,7 +88,7 @@ def dayAngle(obs,utc_offset,time):
 
     return day_angle
 
-@profile
+#@profile
 def sunsetHourAngle(sun,obs,beta): #towards equator
     sun.compute(obs)
     beta = 0.0174533 * beta
@@ -97,7 +97,7 @@ def sunsetHourAngle(sun,obs,beta): #towards equator
 
     return min(hour1,hour2) #radians
 
-@profile
+#@profile
 def direct_beam_ext(sun,obs,beta,t_i,t_f,utc_offset,time):
     I_sc = 4921#kJ m^-2 hr-1 ... 1367 W m^-2
     beta = 0.0174533 * beta # deg -> rad
@@ -112,14 +112,14 @@ def direct_beam_ext(sun,obs,beta,t_i,t_f,utc_offset,time):
 
     return I_0b #kJ m^-2
 
-@profile
+#@profile
 def clearness_index_year(data_kt):
     date = next(iter(data_kt))
     base_year = date.year
 
     return base_year
 
-@profile
+#@profile
 def clearness_index(time,data_kt):
     t = hour_rounder(time).in_tz('UTC')
     # print(t)
@@ -132,13 +132,13 @@ def clearness_index(time,data_kt):
 
     return k_t_list
 
+#@profile
 def hour_rounder(t):
     # Truncates to base hour
     rounded_t = t.set(second=0, microsecond=0, minute=0, hour=t.hour)
     return rounded_t
-               #+datetime.timedelta(hours=t.minute//30))
 
-@profile
+#@profile
 def insolation_modified_atmosphere(surface_albedo,beta,place,sun,utc_offset,wi,wf,time):
     # time = pendulum.instance(place.date.datetime())
     # print(time)
@@ -147,7 +147,7 @@ def insolation_modified_atmosphere(surface_albedo,beta,place,sun,utc_offset,wi,w
 
     I_h_extra = direct_beam_ext(sun,place,0,wi,wf,utc_offset,time)
 
-    k_t_list = clearness_index(time.set(year=clearness_index_year(data_kt)),data_kt)
+    k_t_list = clearness_index(time.set(year=1991),data_kt)
 
     # print(k_t_list)
 
@@ -173,12 +173,13 @@ def insolation_modified_atmosphere(surface_albedo,beta,place,sun,utc_offset,wi,w
     azimuth = sun.az - pi #change from N to S origin
 
     cos_incidence_angle = cos(sun.alt)*cos(azimuth-0)*sin(beta)+sin(sun.alt)*cos(beta) #rads, 0 amizuth orientation
-    cos_incidence_angle_alternate = sin(sun.dec)*sin(place.lat-beta) + cos(sun.dec)*cos(place.lat-beta)*cos(wi)
+    # cos_incidence_angle_alternate = sin(sun.dec)*sin(place.lat-beta) + cos(sun.dec)*cos(place.lat-beta)*cos(wi)
     # print("cos incidence_angle",cos_incidence_angle)
     # print("cos incidence_angle_IBQUAL",cos_incidence_angle_alternate)
     # print("")
     # print("sin sunalt",sin(sun.alt))
     R_b = cos_incidence_angle/sin(sun.alt)
+    R_b_alternate = 0#cos_incidence_angle_alternate/sin(sun.alt)
     # print("ih",I_h)
     # print("Ib",I_b)
     # print("I_dh",I_dh)
@@ -200,12 +201,14 @@ def insolation_modified_atmosphere(surface_albedo,beta,place,sun,utc_offset,wi,w
     I_total = I_b*R_b + I_dh*(1+cos(beta))/2 + surface_albedo*I_h*(1-cos(beta))/2
     # print(I_total)
 
-    return I_total,I_b,I_dh
+    return I_total,R_b,R_b_alternate
 
+#@profile
 def daily_insolation(time,place,utc_offset,sun,b,surface_albedo): #b in deg
     sun_insol = []
     sun_insol_atmosphere = []
     time_hours = []
+    # R_b_collector = [[],[]]
 
     start_time = time.set(second=0, microsecond=0, minute=0, hour=0)
     place.date = start_time.in_tz('UTC')
@@ -216,7 +219,7 @@ def daily_insolation(time,place,utc_offset,sun,b,surface_albedo): #b in deg
     sunset = sunsetHourAngle(sun,place,b)
     # print("sunset angle:", sunset*57.2958)
 
-    for l in range(1440):
+    for l in range(288):
 
         sun.compute(place)
 
@@ -224,28 +227,31 @@ def daily_insolation(time,place,utc_offset,sun,b,surface_albedo): #b in deg
 
         if (wi>(-sunset+pi/180) and wi<(sunset-pi/180) and sun.alt>(pi/180)):
             # print("hour angle",wi/0.0174533,"deg")
-            start_time = start_time.add(minutes=1)
+            start_time = start_time.add(minutes=5)
             place.date = start_time.in_tz('UTC')
 
             wf,st,solar_time = hourAngle(place,utc_offset,start_time)
 
-            start_time = start_time.subtract(minutes=1)
+            start_time = start_time.subtract(minutes=5)
             place.date = start_time.in_tz('UTC')
 
             sun_insol.append(direct_beam_ext(sun,place,b,wi,wf,utc_offset,start_time))
 
-            I_total, I_b, I_dh = insolation_modified_atmosphere(surface_albedo,b,place,sun,utc_offset,wi,wf,start_time)
+            I_total, R_b, R_b_alternate = insolation_modified_atmosphere(surface_albedo,b,place,sun,utc_offset,wi,wf,start_time)
+
+            # R_b_collector[0].append(R_b)
+            # R_b_collector[1].append(R_b_alternate)
 
             sun_insol_atmosphere.append(I_total)
             
-            time_hours.append(l/60)
+            time_hours.append(l/12)
         # elif (wi>(-sunset+pi/180) and wi<(sunset-pi/180)):
         #     print(start_time)
 
-        start_time = start_time.add(minutes=1)
+        start_time = start_time.add(minutes=5)
         place.date = start_time.in_tz('UTC')
 
-    place.date = start_time.subtract(minutes=1440).in_tz('UTC')
+    place.date = start_time.subtract(minutes=288).in_tz('UTC')
 
     daily_irradiation = integrate.simps(sun_insol)
     daily_irradiation_atmosphere = integrate.simps(sun_insol_atmosphere)
@@ -253,6 +259,8 @@ def daily_insolation(time,place,utc_offset,sun,b,surface_albedo): #b in deg
     return time_hours, st, daily_irradiation, sun_insol, sun_insol_atmosphere,daily_irradiation_atmosphere #kJ/m^2
 
 def plot_insolation_yearly(beta,longitude,latitude,continuous,surface_albedo):
+
+    line_colors = ['r', 'g', 'b', 'c', 'm', 'y', 'k']
     
     tf = TimezoneFinder()
     
@@ -274,11 +282,11 @@ def plot_insolation_yearly(beta,longitude,latitude,continuous,surface_albedo):
     time_zone = tf.timezone_at(lng=longitude, lat=latitude)
     utc_offset = pendulum.from_timestamp(0, time_zone).offset_hours
 
-    for b in beta:
+    for count,b in enumerate(beta):
         if continuous:
             start_time = pendulum.datetime(year,1,1,0,0,0,tz=time_zone)
             for i in range(1,365):
-                time_hours, st, daily_irradiation_value ,null,null,daily_irradiation_atmosphere = daily_insolation(start_time,place,utc_offset,sun,b,surface_albedo)
+                time_hours, st, daily_irradiation_value ,null,null,daily_irradiation_atmosphere= daily_insolation(start_time,place,utc_offset,sun,b,surface_albedo)
                 daily_irradiation.append(daily_irradiation_value)
                 sun_insol_atmosphere_perDay.append(daily_irradiation_atmosphere)
                 start_time = start_time.add(days=1)
@@ -289,22 +297,22 @@ def plot_insolation_yearly(beta,longitude,latitude,continuous,surface_albedo):
                 #     print(i, daily_irradiation_atmosphere)
 
 
-            savgol_smoothed = signal.savgol_filter(sun_insol_atmosphere_perDay, 101,3)
-            ax2.plot(range(1,365),daily_irradiation)
-            ax2.plot(range(1,365),sun_insol_atmosphere_perDay)
-            ax2.plot(range(1,365),savgol_smoothed)
+            savgol_smoothed = signal.savgol_filter(sun_insol_atmosphere_perDay, 101,5)
+            ax2.plot(range(1,365),daily_irradiation,c=line_colors[count],label='Angle: {0}'.format(b))
+            ax2.plot(range(1,365),sun_insol_atmosphere_perDay,':',c=line_colors[count])
+            ax2.plot(range(1,365),savgol_smoothed,'--',c=line_colors[count])
             print("")
             print(b,' degrees (extra total): ',format_e(integrate.simps(daily_irradiation)), "kJ m-2")
             print(b,' degrees (atm raw total): ',format_e(integrate.simps(sun_insol_atmosphere_perDay)),"kJ m-2")
             print(b,' degrees (atm savgol total): ',format_e(integrate.simps(savgol_smoothed)),"kJ m-2")
-            current_label = 'Angle: {0}'.format(b)
-            legend_labels.append(current_label)
+            # current_label = 'Angle: {0}'.format(b)
+            # legend_labels.append(current_label)
             
             daily_irradiation = []
             sun_insol_atmosphere_perDay =[]
 
         if continuous:
-            ax2.legend(labels = legend_labels,loc='upper right')
+            ax2.legend()#(labels = legend_labels,loc='upper right')
             ax2.set_xlabel("Day Number")
             ax2.set_ylabel("Irradiation [kJ/m^2]")
         #plt.savefig('graph of sun position per month.png', dpi = 600)
@@ -340,7 +348,7 @@ def find_optimum_insolation_yearly(longitude,latitude,continuous,surface_albedo)
     time_zone = tf.timezone_at(lng=longitude, lat=latitude)
     utc_offset = pendulum.from_timestamp(0, time_zone).offset_hours
 
-    beta_range = range(20,int(latitude+20))
+    beta_range = range(25,int(latitude+10))
 
     for b in beta_range:
         if continuous:
@@ -419,18 +427,26 @@ def plot_insolation_hourly(beta,longitude,latitude,surface_albedo):
     daily_irradiation = []
 
     year = 2013
-    day = 15
+    day = 29
 
     time_zone = tf.timezone_at(lng=longitude, lat=latitude)
 
     utc_offset = pendulum.from_timestamp(0, time_zone).offset_hours
 
     for b in beta:
-        for month in range(1,13):
+        for month in range(6,7):
             time = pendulum.datetime(year,month,day,0,0,0,tz=time_zone)
             place.date = time.in_tz('UTC')
             time_hours, st, daily_irradiation_value ,sun_insol,sun_insol_atmosphere,daily_irradiation_atmosphere = daily_insolation(time,place,utc_offset,sun,b,surface_albedo)
+            
+
+            top = max(sun_insol)
+            sun_insol = [x/top for x in sun_insol]
+
             ax2.plot(time_hours,sun_insol,next(linecycler))
+
+            # ax2.plot(time_hours,R_b_collector[0],next(linecycler))
+            # ax2.plot(time_hours,R_b_collector[1],next(linecycler))
 
             # time = pendulum.datetime(year,month,3,0,0,0,tz=time_zone)
             # place.date = time.in_tz('UTC')
@@ -439,9 +455,13 @@ def plot_insolation_hourly(beta,longitude,latitude,surface_albedo):
 
             current_label = 'Month: {1}, Angle: {0}'.format(b,month_list[month-1])
             legend_labels.append(current_label)
-        
+    
+    top = max(sun_insol)
+    # minor_ticks = numpy.arange(0, 25, 24)
+    # ax2.set_xticks(minor_ticks, minor=True)
+    ax2.grid(which='both')    
     ax2.legend(labels = legend_labels,loc='upper right')
-    ax2.set_xlabel("Time [hrs from midnight")
+    ax2.set_xlabel("Time [hrs from midnight]")
     ax2.set_ylabel("Irradiation [kJ/m^2]")
     #plt.savefig('graph of sun position per month.png', dpi = 600)
     plt.show()
@@ -490,6 +510,7 @@ with open('k_t_dict.pickle', 'rb') as filehandle:
 # print("daily irradiation atm: ",daily_irradiation_atmosphere)
 
 
-# plot_insolation_yearly([34.05],-118.6919205, 34.05,True,0.2)
-plot_insolation_hourly([23.9],-74.0060, 40.7128,0.2)
+# plot_insolation_yearly([30,37],-121.9886, 37.5483,True,0.2)
+plot_insolation_hourly([30],-121.9886, 37.5483,0.2)
 # find_optimum_insolation_yearly(-121.9886, 37.5483,True,0.2)
+#34.05
